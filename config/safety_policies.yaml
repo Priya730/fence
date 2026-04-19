@@ -1,0 +1,151 @@
+# Safety Policies Configuration for MCP Proxy
+# Define per-agent policies for tool access, rate limits, and RBAC
+
+tool_registry:
+  search:
+    description: Search an approved knowledge source
+    category: read
+    risk_level: low
+  fetch_document:
+    description: Fetch a known document by identifier
+    category: read
+    risk_level: low
+  summarize:
+    description: Summarize approved content
+    category: read
+    risk_level: low
+  analyze:
+    description: Analyze structured data
+    category: compute
+    risk_level: low
+  translate:
+    description: Translate text between languages
+    category: read
+    risk_level: low
+  compute_statistics:
+    description: Compute statistics over data
+    category: compute
+    risk_level: low
+  search_kb:
+    description: Search the support knowledge base
+    category: support
+    risk_level: low
+  draft_reply:
+    description: Draft a customer-facing support reply
+    category: support
+    risk_level: low
+  escalate_ticket:
+    description: Escalate a support incident
+    category: support
+    risk_level: medium
+  update_ticket:
+    description: Update ticket metadata
+    category: support
+    risk_level: medium
+  update_database:
+    description: Update a database record
+    category: data
+    risk_level: high
+    approval_required: true
+  execute_shell:
+    description: Run a shell command inside a sandboxed worker
+    category: system
+    risk_level: critical
+    approval_required: true
+    blocked_argument_patterns:
+      - '(?i)(^|[;\n\r\s])rm\s+-rf\b'
+      - '(?i)curl\s+.*\|\s*sh\b'
+      - '(?i)\bsudo\b'
+      - '(?i)\bmkfs\.'
+      - '(?i)\bdd\s+if='
+    allowed_argument_keys:
+      - command
+      - cwd
+      - timeout_seconds
+      - human_approved
+  access_secrets:
+    description: Read secrets from a managed secret store
+    category: security
+    risk_level: critical
+    approval_required: true
+
+policies:
+  research-agent:
+    allowed_tools:
+      - search
+      - fetch_document
+      - summarize
+      - analyze
+      - translate
+    blocked_operations:
+      - modify_database
+      - execute_shell
+      - access_secrets
+    rate_limits:
+      calls_per_minute: 60
+      tokens_per_hour: 500000
+    rbac:
+      read_only:
+        - search
+        - fetch_document
+        - summarize
+      analyst:
+        - search
+        - fetch_document
+        - summarize
+        - analyze
+
+  data-processor:
+    allowed_tools:
+      - fetch_document
+      - analyze
+      - update_database
+      - compute_statistics
+    blocked_operations:
+      - execute_shell
+      - access_external_apis
+    rate_limits:
+      calls_per_minute: 30
+      tokens_per_hour: 200000
+
+  admin-agent:
+    allowed_tools:
+      - "*"
+    blocked_operations:
+      - access_root_credentials
+    rate_limits:
+      calls_per_minute: 100
+      tokens_per_hour: 1000000
+
+  restricted-agent:
+    allowed_tools:
+      - search
+    blocked_operations:
+      - "*"
+    rate_limits:
+      calls_per_minute: 10
+      tokens_per_hour: 50000
+
+  support-agent:
+    allowed_tools:
+      - classify_ticket
+      - search_kb
+      - draft_reply
+      - escalate_ticket
+      - update_ticket
+    blocked_operations:
+      - execute_shell
+      - access_secrets
+    rate_limits:
+      calls_per_minute: 20
+      tokens_per_hour: 100000
+
+defaults:
+  allowed_tools:
+    - search
+    - fetch_document
+  blocked_operations:
+    - execute_shell
+  rate_limits:
+    calls_per_minute: 30
+    tokens_per_hour: 100000

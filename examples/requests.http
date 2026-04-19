@@ -1,0 +1,52 @@
+### Health
+GET http://127.0.0.1:8000/health
+
+### Tools
+GET http://127.0.0.1:8000/tools
+
+### Tool Details
+GET http://127.0.0.1:8000/tools/execute_shell
+
+### Policy
+GET http://127.0.0.1:8000/policy/support-agent
+X-API-Key: dev-key
+
+### Direct Decision
+POST http://127.0.0.1:8000/call
+Content-Type: application/json
+X-API-Key: dev-key
+
+{
+  "agent_id": "support-agent",
+  "tool_name": "search_kb",
+  "arguments": {
+    "query": "payment failures after release",
+    "top_k": 2
+  },
+  "provider": "generic"
+}
+
+### Provider-Shaped Decision
+POST http://127.0.0.1:8000/v1/decide
+Content-Type: application/json
+X-API-Key: dev-key
+
+{
+  "provider": "openai",
+  "payload": {
+    "agent_id": "support-agent",
+    "tool_call": {
+      "name": "draft_reply",
+      "arguments": {
+        "ticket_id": "TK-1042",
+        "customer_name": "Acme Health",
+        "summary": "Payments failing for EU customers after release 2.8.1",
+        "next_steps": [
+          "Investigating gateway health",
+          "Escalated to on-call"
+        ]
+      }
+    }
+  }
+}
+
