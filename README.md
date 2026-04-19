@@ -39,6 +39,50 @@ It is useful for:
 
 It is not yet a full production control plane with multi-tenant auth, Redis, Postgres, sandboxed execution, and policy rollout.
 
+## How Teams Use Fence
+
+Fence is not something most teams run as a chatbot. They wire it into the path an agent takes before it touches a real tool.
+
+Typical flow:
+
+1. A model proposes a tool call.
+2. The app sends that call to Fence.
+3. Fence checks policy, schema, budget, and risk.
+4. Fence returns allow or block.
+5. The app executes the tool only if Fence approves it.
+
+In practice, teams use Fence as policy-as-code for agent actions:
+
+- update the YAML policy file to control which tools each agent can use
+- mark risky tools as approval-required
+- keep audit logs for every decision
+- integrate Fence through the tiny client or the HTTP API
+
+Example policy shape:
+
+```yaml
+policies:
+  support-agent:
+    allowed_tools:
+      - search_kb
+      - draft_reply
+      - escalate_ticket
+      - update_ticket
+    blocked_operations:
+      - execute_shell
+    rate_limits:
+      calls_per_minute: 60
+
+tool_registry:
+  execute_shell:
+    risk_level: critical
+    approval_required: true
+```
+
+That is the real product pitch:
+
+Fence gives teams a small, inspectable control layer around agent actions so they can ship agents without giving them unrestricted power.
+
 ## Quick Start
 
 ### 1. Install
