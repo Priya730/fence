@@ -147,6 +147,20 @@ async def startup() -> None:
     logger.info("%s started", APP_NAME)
 
 
+@app.get("/")
+async def root() -> Dict[str, Any]:
+    """Simple landing response for browsers and health checks."""
+    return {
+        "service": APP_NAME.lower(),
+        "status": "running",
+        "description": APP_DESCRIPTION,
+        "health": "/health",
+        "tools": "/tools",
+        "stats": "/stats",
+        "documentation": "See README.md and docs/index.md",
+    }
+
+
 @app.get("/health")
 async def health_check() -> Dict[str, Any]:
     """Health endpoint for orchestration and load balancers."""

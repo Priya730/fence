@@ -76,8 +76,14 @@ class TestBudgetChecks:
     
     def test_check_budget_cost_exceeded(self, engine, session):
         """Test budget check fails when cost exceeded"""
-        session.cost_used = 0.95
-        result = engine.check_budget(session, estimated_tokens=1000)
+        tight_session = AgentSession(
+            session_id="tight-session",
+            agent_id="test-agent",
+            token_budget=10000,
+            cost_budget=0.0000001,
+            timeout_minutes=60,
+        )
+        result = engine.check_budget(tight_session, estimated_tokens=1000)
         assert not result.allowed
         assert "Cost budget exceeded" in result.reason
     

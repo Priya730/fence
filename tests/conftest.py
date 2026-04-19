@@ -1,8 +1,15 @@
 """Shared pytest fixtures for Fence tests."""
 
 from datetime import datetime, timedelta
+from pathlib import Path
+import sys
 
 import pytest
+
+# Make the repository root importable when tests run from the tests/ package.
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from adapters import ToolCallAdapter
 from budgeting import AgentSession, BudgetEngine
@@ -54,4 +61,3 @@ def active_session():
         "created_at": created_at,
         "expires_at": created_at + timedelta(minutes=60),
     }
-

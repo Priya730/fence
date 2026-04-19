@@ -21,6 +21,7 @@ import json
 import os
 import re
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -46,6 +47,15 @@ OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
 DEFAULT_TICKET_PATH = DATA_DIR / "support_ticket.json"
 DEFAULT_KB_PATH = DATA_DIR / "knowledge_base.md"
 SEMANTIC_VALIDATOR = SemanticValidator()
+
+
+@dataclass
+class ModelCallResult:
+    """Structured diagnostics for a model attempt."""
+
+    payload: Optional[Dict[str, Any]]
+    reason: str
+    endpoint: str
 
 
 def load_ticket(path: Path) -> Dict[str, Any]:
@@ -92,18 +102,51 @@ async def write_artifact(name: str, data: Dict[str, Any]) -> Path:
 async def call_fence(agent_id: str, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
     """Ask Fence if a tool call is allowed."""
     async with httpx.AsyncClient(timeout=30) as client:
-        response = await client.post(
-            f"{FENCE_URL}/call",
-            headers={"X-API-Key": FENCE_API_KEY},
-            json={
-                "agent_id": agent_id,
-                "tool_name": tool_name,
-                "arguments": arguments,
-                "provider": "support-agent",
-            },
-        )
-        response.raise_for_status()
-        return response.json()
+        payload = {
+            "agent_id": agent_id,
+            "tool_name": tool_name,
+            "arguments": arguments,
+            "provider": "support-agent",
+        }
+        try:
+            response = await client.post(
+                f"{FENCE_URL}/call",
+                headers={"X-API-Key": FENCE_API_KEY},
+                json=payload,
+            )
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError as exc:
+            detail = exc.response.text
+            print(f"Fence request failed for {tool_name}: HTTP {exc.response.status_code}")
+            if detail:
+                print(detail)
+            return {
+                "success": False,
+                "trace_id": "n/a",
+                "decision": "blocked",
+                "normalized_call": payload,
+                "result": None,
+                "error": f"Fence HTTP {exc.response.status_code}: {detail or exc.response.reason_phrase}",
+                "metadata": {
+                    "stage": "http_error",
+                    "provider": "support-agent",
+                },
+            }
+        except httpx.RequestError as exc:
+            print(f"Fence request failed for {tool_name}: {exc}")
+            return {
+                "success": False,
+                "trace_id": "n/a",
+                "decision": "blocked",
+                "normalized_call": payload,
+                "result": None,
+                "error": f"Fence request error: {exc}",
+                "metadata": {
+                    "stage": "network_error",
+                    "provider": "support-agent",
+                },
+            }
 
 
 async def ollama_available() -> bool:
@@ -156,8 +199,26 @@ def build_draft_reply_arguments(state: Dict[str, Any], provided: Optional[Dict[s
     }
 
 
-async def ollama_json(prompt: str) -> Optional[Dict[str, Any]]:
-    """Ask the local model for structured JSON output."""
+def _coerce_reply_text(payload: Dict[str, Any]) -> Optional[str]:
+    """Extract a usable reply string from a model payload."""
+    reply = payload.get("reply")
+    if isinstance(reply, str) and reply.strip():
+        return reply.strip()
+    if isinstance(reply, dict):
+        for key in ("text", "content", "message", "body", "reply"):
+            value = reply.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return None
+
+
+async def ollama_json(prompt: str) -> ModelCallResult:
+    """Ask the local model for structured JSON output.
+
+    Returns both the parsed payload and the best explanation of why parsing
+    did or did not work.
+    """
+    failures: List[str] = []
     async with httpx.AsyncClient(timeout=120) as client:
         for endpoint, payload in (
             (
@@ -189,10 +250,25 @@ async def ollama_json(prompt: str) -> Optional[Dict[str, Any]]:
                 text = data["message"]["content"] if endpoint == "chat" else data["response"]
                 parsed = _extract_json(text)
                 if parsed is not None:
-                    return parsed
-            except Exception:
+                    return ModelCallResult(payload=parsed, reason="ok", endpoint=endpoint)
+                failures.append(
+                    f"{endpoint}: response was not parseable as JSON (preview={text[:180]!r})"
+                )
+            except httpx.RequestError as exc:
+                failures.append(f"{endpoint}: request failed ({exc.__class__.__name__}: {exc})")
+            except httpx.HTTPStatusError as exc:
+                body = exc.response.text[:180] if exc.response.text else ""
+                failures.append(
+                    f"{endpoint}: HTTP {exc.response.status_code} from Ollama (preview={body!r})"
+                )
+            except Exception as exc:
+                failures.append(f"{endpoint}: unexpected error ({exc.__class__.__name__}: {exc})")
                 continue
-    return None
+    return ModelCallResult(
+        payload=None,
+        reason=" | ".join(failures) if failures else "unknown Ollama failure",
+        endpoint="fallback",
+    )
 
 
 def build_fallback_action(state: Dict[str, Any]) -> Dict[str, Any]:
@@ -282,14 +358,23 @@ async def choose_next_action(state: Dict[str, Any], kb_text: str) -> Dict[str, A
     )
 
     if await ollama_available():
-        parsed = await ollama_json(prompt)
-        if isinstance(parsed, dict) and parsed.get("tool_name"):
-            if parsed["tool_name"] == "draft_reply":
-                parsed["arguments"] = build_draft_reply_arguments(state, parsed.get("arguments"))
+        model_result = await ollama_json(prompt)
+        if isinstance(model_result.payload, dict) and model_result.payload.get("tool_name"):
+            if model_result.payload["tool_name"] == "draft_reply":
+                model_result.payload["arguments"] = build_draft_reply_arguments(
+                    state, model_result.payload.get("arguments")
+                )
             return {
-                "tool_name": parsed["tool_name"],
-                "arguments": parsed.get("arguments", {}),
+                "tool_name": model_result.payload["tool_name"],
+                "arguments": model_result.payload.get("arguments", {}),
             }
+        if isinstance(model_result.payload, dict):
+            print(
+                "Model fallback for next action: "
+                f"missing tool_name in {json.dumps(model_result.payload, ensure_ascii=False)[:240]}"
+            )
+        else:
+            print(f"Model fallback for next action: {model_result.reason}")
 
     return build_fallback_action(state)
 
@@ -303,6 +388,8 @@ async def generate_reply(ticket: Dict[str, Any], kb_hits: List[str], state: Dict
             "state": state,
             "instruction": (
                 "Return JSON with fields reply and internal_summary. "
+                "Reply must be a plain string value, not an object or list. "
+                "Internal_summary must also be a plain string. "
                 "Reply should be concise, factual, and empathetic."
             ),
         },
@@ -310,17 +397,34 @@ async def generate_reply(ticket: Dict[str, Any], kb_hits: List[str], state: Dict
     )
 
     if await ollama_available():
-        parsed = await ollama_json(prompt)
-        if isinstance(parsed, dict) and parsed.get("reply"):
-            parsed.setdefault("internal_summary", "Reply generated by Ollama.")
-            return parsed
+        model_result = await ollama_json(prompt)
+        if isinstance(model_result.payload, dict):
+            reply_text = _coerce_reply_text(model_result.payload)
+            if reply_text:
+                normalized = {
+                    "reply": reply_text,
+                    "internal_summary": model_result.payload.get(
+                        "internal_summary", "Reply generated by Ollama."
+                    ),
+                    "model_driven": True,
+                    "fallback_reason": None,
+                }
+                return normalized
+            print(
+                "Model fallback for reply generation: "
+                f"payload had no usable reply text ({json.dumps(model_result.payload, ensure_ascii=False)[:240]})"
+            )
+        else:
+            print(f"Model fallback for reply generation: {model_result.reason}")
 
     return {
         "reply": (
             f"Hi {ticket['customer_name']}, we are investigating the payment issue "
             "and will update you shortly."
         ),
-        "internal_summary": "Fallback reply generated without Ollama.",
+        "internal_summary": f"Fallback reply generated without Ollama. Reason: {model_result.reason if 'model_result' in locals() else 'Ollama unavailable'}",
+        "model_driven": False,
+        "fallback_reason": model_result.reason if 'model_result' in locals() else "Ollama unavailable",
     }
 
 
@@ -384,7 +488,8 @@ async def execute_action(
             {
                 "tool_name": tool_name,
                 "decision": "allowed",
-                "model_driven": reply_payload.get("internal_summary") != "Fallback reply generated without Ollama.",
+                "model_driven": reply_payload.get("model_driven", False),
+                "fallback_reason": reply_payload.get("fallback_reason"),
             }
         )
         print(json.dumps(reply_payload, indent=2))

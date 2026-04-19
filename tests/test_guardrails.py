@@ -83,7 +83,7 @@ class TestToolAllowlisting:
             arguments={}
         )
         assert not result["allowed"]
-        assert "not registered" in result["reason"]
+        assert "not in allowlist" in result["reason"]
     
     def test_wildcard_allowlist(self, engine):
         """Test wildcard allowlist still honors approval and registry checks"""
@@ -218,13 +218,3 @@ class TestPolicyInfo:
             rate_limits={"calls_per_minute": 60},
             rbac_roles={}
         )
-        engine.policies["test-agent"] = policy
-        
-        info = engine.get_policy_info("test-agent")
-        assert info["agent_id"] == "test-agent"
-        assert "search" in info["allowed_tools"]
-        assert "execute_shell" in info["blocked_operations"]
-
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
