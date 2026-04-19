@@ -351,7 +351,10 @@ async def choose_next_action(state: Dict[str, Any], kb_text: str) -> Dict[str, A
                 "Return JSON with fields tool_name and arguments. "
                 "Choose exactly one next action. "
                 "Use finish when the work is done. "
-                "Do not include any commentary."
+                "Do not include any commentary. "
+                "Do not repeat the full ticket, knowledge base, or state. "
+                "Respond only with an object like "
+                "{\"tool_name\":\"search_kb\",\"arguments\":{\"query\":\"payment failures after deployments\",\"top_k\":2}}."
             ),
         },
         indent=2,
@@ -390,7 +393,10 @@ async def generate_reply(ticket: Dict[str, Any], kb_hits: List[str], state: Dict
                 "Return JSON with fields reply and internal_summary. "
                 "Reply must be a plain string value, not an object or list. "
                 "Internal_summary must also be a plain string. "
-                "Reply should be concise, factual, and empathetic."
+                "Reply should be concise, factual, and empathetic. "
+                "Respond only with an object like "
+                "{\"reply\":\"Hi Acme Health, we are investigating the payment issue and will update you shortly.\","
+                "\"internal_summary\":\"Ticket triaged and escalated.\"}."
             ),
         },
         indent=2,

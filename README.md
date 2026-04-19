@@ -25,7 +25,7 @@ Fence is built for teams that want agent actions to be controlled, auditable, an
 - SQLite persistence for sessions and audit logs
 - tiny Python client for integration
 - support triage demo agent
-- docs, architecture diagrams, and runbook
+- architecture diagrams and runbook
 
 ## Current Status
 
@@ -69,8 +69,41 @@ In another terminal:
 ```bash
 source .venv/bin/activate
 ollama serve
-ollama pull llama3.1:latest
-export OLLAMA_MODEL=llama3.1:latest
+ollama pull llama3.2:1b
+export OLLAMA_MODEL=llama3.2:1b
+python examples/support_triage_agent.py
+```
+
+## Demo
+
+Fence’s best demo is the support triage agent.
+
+It shows:
+
+- a real ticket being triaged
+- the model choosing the next action
+- Fence approving safe actions and blocking risky ones
+- a customer reply being drafted
+- audit trails and artifacts being written
+
+```mermaid
+flowchart LR
+  A["Customer ticket"] --> B["Support triage agent"]
+  B --> C["Fence /call"]
+  C --> D["Policy + schema + budget check"]
+  D -->|allowed| E["search_kb / escalate_ticket / update_ticket"]
+  D -->|blocked| F["Reject unsafe action"]
+  E --> G["Draft reply"]
+  G --> H["Write artifacts + audit trail"]
+  F --> H
+  H --> I["Final customer reply"]
+```
+
+Fastest local run:
+
+```bash
+ollama pull llama3.2:1b
+export OLLAMA_MODEL=llama3.2:1b
 python examples/support_triage_agent.py
 ```
 
@@ -104,23 +137,9 @@ If your framework already emits provider-shaped payloads, Fence can normalize th
 - [Integration example](examples/integration_example.py)
 - [AutoGen + Ollama demo](examples/autogen_ollama_fence_demo.py)
 
-## Docs
-
-If you want to learn the project deeply, start here:
-
-- [Build Fence From Zero](docs/BUILD_FROM_ZERO.md)
-- [Build the Support Agent From Zero](docs/BUILD_SUPPORT_AGENT.md)
-- [Build the SDK Integration From Zero](docs/BUILD_SDK_INTEGRATION.md)
-- [Build the Dockerized Deployment From Zero](docs/BUILD_DOCKER_DEPLOYMENT.md)
-- [Fence Senior Architecture](docs/ARCHITECTURE_SENIOR.md)
-- [Fence Architecture Visuals](docs/ARCHITECTURE_VISUALS.md)
-- [What Fence Is](docs/LEARN_FENCE.md)
-- [Fence File Guide](docs/FILE_GUIDE.md)
-- [Runbook](RUNBOOK.md)
-- [Blog draft](BLOG.md)
-
 ## API Endpoints
 
+- `GET /`
 - `GET /health`
 - `GET /stats`
 - `GET /tools`
@@ -167,7 +186,6 @@ storage.py                # SQLite persistence
 adapters.py               # request normalization
 budgeting.py              # budget tracking
 examples/                 # demos and sample data
-docs/                     # tutorials and architecture docs
 config/                   # policy and env examples
 ```
 
